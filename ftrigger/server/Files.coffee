@@ -7,17 +7,15 @@ class Files
   constructor: (@rootDir) ->
 
   ReadFiles: (current, done) ->
-    fs.readdir current, (err, files) =>
-      if err
-        return done err
+    files = fs.readdirSync current
 
-      for file in files
-        curDir = current + '/' + file
-        sfile = fs.statSync curDir
-        if sfile.isDirectory()
-          done null, curDir, 3
-          @ReadFiles curDir, done
-        else
-          done null, curDir, 2
+    for file in files
+      curDir = current + '/' + file
+      sfile = fs.statSync curDir
+      if sfile.isDirectory()
+        done null, curDir, 3
+        @ReadFiles curDir, done
+      else
+        done null, curDir, 2
 
 module.exports = Files
