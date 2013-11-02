@@ -5,9 +5,11 @@
 #include                      <linux/slab.h>
 #include                      <linux/fs.h>
 #include                      <linux/namei.h>
+#include                      <linux/dcache.h>
 #include                      <linux/kthread.h>
-#include                      <asm/uaccess.h>
 #include                      <linux/delay.h>
+
+#include                      <asm/uaccess.h>
 #include                      "include/ftrigger.h"
 #include                      "include/socket_helper.h"
 #include                      "include/protocole.h"
@@ -20,16 +22,48 @@ struct socket                 *socket = NULL;
 struct dentry                 *root = NULL;
 struct super_block            *sb = NULL;
 
+// int                           send_open_request(struct file *file)
+// {
+//   struct s_proto              proto =
+//   {
+//     .code = 4,
+//     .args = file.name,
+//   };
+//   return 0;
+// }
+
 int                           ftrigger_f_open(struct inode *inode, struct file *file)
 {
-  printk(KERN_INFO "Open !");
+  printk(KERN_INFO "Open ! %s", inode->i_private);
+  file->private_data = inode->i_private;
 
+  return 0;
+}
+
+ssize_t                       ftrigger_f_read(struct file *file, char __user *buff, size_t len, loff_t *off)
+{
+  struct s_proto proto =
+  {
+    .code = 4,
+  };
+  strcpy(proto->args, file->private_data);
+
+  send_socket(socket, &proto);
+  printk(KERN_INFO "Read !");
+  return 0;
+}
+
+ssize_t                       ftrigger_f_write(struct file *file, const char __user *buff, size_t len, loff_t *off)
+{
+  printk(KERN_INFO "Write !");
   return 0;
 }
 
 struct file_operations        i_fop =
 {
   .open = ftrigger_f_open,
+  .read = ftrigger_f_read,
+  .write = ftrigger_f_write,
 };
 
 int                           ftrigger_i_create(struct inode *inode,struct dentry *dentry,int i, struct nameidata *name)
@@ -63,6 +97,8 @@ static struct inode *ftrigger_make_inode(struct super_block *sb, int mode)
     ret->i_ino = iunique(sb, 0);
     ret->i_atime = ret->i_mtime = ret->i_ctime = CURRENT_TIME;
   }
+  else
+    printk(KERN_INFO "ERROR : NO New inode");
   return ret;
 }
 
@@ -155,7 +191,7 @@ static struct dentry          *ftrigger_create_dir (struct super_block *sb,
     goto out_dput;
   inode->i_op = &simple_dir_inode_operations;
   inode->i_fop = &simple_dir_operations;
-  inode->i_blocks = 4096;
+  inode->i_size = 4096;
 
   d_add(dentry, inode);
   return dentry;
@@ -171,6 +207,13 @@ static int                    ftrigger_super(struct super_block *superblock, voi
   struct inode *inode = new_inode(superblock);
   struct dentry *rootPath;
   int r = 0;
+  char  *mount_point_buff = kmalloc(255, GFP_KERNEL);
+
+  struct s_proto              test =
+  {
+    .code = 1,
+    .args = "",
+  };
 
   save_mount_options(superblock, data);
   superblock -> s_op = &s_op;
@@ -181,51 +224,25 @@ static int                    ftrigger_super(struct super_block *superblock, voi
   superblock -> s_magic = FT_MAGIC;
   inode -> i_ino = iunique(superblock, 0);
   inode_init_owner(inode, NULL, FTRIGGER_BASE_INODE_MODE);
-  // inode_sb_list_add(inode);
   inode->i_op = &simple_dir_inode_operations;
   inode->i_fop = &simple_dir_operations;
-  // inode -> i_op = &i_op;
-  // inode -> i_fop = &i_fop;
-  // inode->i_blocks = 8;
   inode->i_size = 4096;
-  // inode->i_bytes = 4096;
   inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
   inode->i_flags = S_DIRSYNC;
   rootPath = d_make_root(inode);
   if (!rootPath) {
       return -ENOMEM;
   }
+  mount_point = dentry_path_raw(rootPath, mount_point_buff, 255);
+  printk(KERN_INFO "Mount point = %s", mount_point);
   superblock -> s_root = rootPath;
 
   root = rootPath; //Global root
   sb = superblock;
 
-  struct s_proto              test =
-  {
-    .code = 1,
-    .args = "",
-  };
   if ((r = write_socket(socket, &test)) < 0)
     return r;
 
-  // char i = 'A';
-  // char j = 'A';
-  // char buff[3];
-  // while (i < 'Z')
-  // {
-  //   while (j < 'Z')
-  //   {
-  //     buff[0] = i;
-  //     buff[1] = j++;
-  //     ftrigger_create_dir(superblock, root, buff);
-  //     printk(KERN_INFO "Created : %s", buff);
-  //     // mdelay(500);
-  //   }
-  //   j = 'A';
-  //   i++;
-  // }
-
-  // ftrigger_create_file(superblock, ftrigger_create_dir(superblock, root, "test2"), "test");
   return 0;
 }
 
@@ -255,7 +272,7 @@ static int                    socket_init(void)
   int                         r = -1;
   struct sockaddr_in          servaddr;
 
-  if ((r = sock_create_kern(PF_INET, SOCK_STREAM, IPPROTO_TCP, &socket)) < 0)
+  if ((r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &socket)) < 0)
   {
     printk(KERN_INFO "Error socket : sock_create : ret = %d\n", r);
 
@@ -285,15 +302,15 @@ int                           create_path(struct s_proto *proto)
   char                        **tab;
   struct qstr                 name;
   int                         r = 0;
-  // struct s_proto              *proto = data;
   struct dentry               *currentDir = root;
   struct dentry               *parentDir = root;
+  struct dentry               *created = NULL;
 
   int i = 0;
+
   tab = str_to_wordtab(proto->args, '/');
   while (i < count_word(proto->args, '/'))
   {
-    printk(KERN_INFO "Word : %s, currentDir = %x, nbWord = %d", tab[i], currentDir, count_word(proto->args, '/'));
     name.name = tab[i];
     name.len = strlen(tab[i]);
     name.hash = full_name_hash(name.name, name.len);
@@ -310,25 +327,28 @@ int                           create_path(struct s_proto *proto)
     {
       if (proto->code == FILE)
       {
-        if ((r = ftrigger_create_file(sb, parentDir, tab[i])) == NULL)
+        if ((created = ftrigger_create_file(sb, parentDir, tab[i])) == NULL)
         {
           printk(KERN_ERR "Cannot create file %s", tab[i]);
           return -1;
         }
+        else
+          created->d_inode->i_private = proto->args;
       }
       else if (proto->code == FOLDER)
       {
-        if ((r = ftrigger_create_dir(sb, parentDir, tab[i])) == 0)
+        if ((r = ftrigger_create_dir(sb, parentDir, tab[i])) == NULL)
         {
           printk(KERN_ERR "Cannot create folder %s", tab[i]);
           return -1;
         }
       }
     }
-    // if (parentDir && parentDir != root)
-    //   dput(parentDir);
-
-    printk(KERN_INFO "created file");
+    else if (currentDir->d_name.name == &name.name)
+    {
+      printk(KERN_INFO "ERROR : Existing path ! ");
+      return -1;
+    }
     i++;
   }
   return 1;
@@ -348,13 +368,26 @@ int                           async_read(void *data)
       printk(KERN_ERR "No more memory to alloc");
       return -1;
     }
+    memset(mess, 0, sizeof(struct s_proto));
 
-    if ((r = read_socket(socket, mess)) < 0)
+    if ((r = read_socket(socket, mess)) <= 0)
+    {
+      printk(KERN_ERR "read_socket returned r = %d", r);
+      return r;
+    }
+
+    if (!mess)
+    {
+      printk(KERN_ERR "Noting read !");
+      return r;
+    }
+
+    // printk(KERN_INFO "read length = %d, mess.code = %d, mess.args = %s", r, mess->code, mess->args);
+
+    if ((r = create_path(mess)) < 0)
       return r;
 
-    printk(KERN_INFO "mess.code = %d, mess.args = %s", mess->code, mess->args);
-    // kthread_run(&create_path, mess, "file_thread");
-    create_path(mess);
+    kfree(mess);
   }
   return 0;
 }

@@ -82,7 +82,7 @@ int                           read_socket(struct socket *socket, void *buffer)
   oldfs = get_fs();
   set_fs(KERNEL_DS);
 
-  if ((r = sock_recvmsg(socket, &msg, sizeof(struct s_proto), 0)) < 0)
+  if ((r = sock_recvmsg(socket, &msg, sizeof(struct s_proto), MSG_WAITALL)) <= 0)
   {
     printk(KERN_INFO "Error socket : send : ret = %d\n", r);
 
@@ -92,7 +92,7 @@ int                           read_socket(struct socket *socket, void *buffer)
   }
 
   set_fs(oldfs);
-  return 0;
+  return r;
 }
 
 MODULE_LICENSE("GPL");
