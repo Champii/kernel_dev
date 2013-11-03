@@ -35,7 +35,7 @@ struct super_block            *sb = NULL;
 
 int                           ftrigger_f_open(struct inode *inode, struct file *file)
 {
-  printk(KERN_INFO "Open ! %s", inode->i_private);
+  // printk(KERN_INFO "Open ! %s", inode->i_private);
   file->private_data = inode->i_private;
 
   struct s_proto proto =
@@ -44,13 +44,19 @@ int                           ftrigger_f_open(struct inode *inode, struct file *
   };
   strcpy(proto.args, inode->i_private);
   write_socket(socket, &proto);
+  read_socket(socket_data, &proto);
+  if (proto.code == ERROR)
+  {
+    printk(KERN_ERR "Error open : %s", proto.args);
+    return -1;
+  }
 
   return 0;
 }
 
 int                           ftrigger_f_release(struct inode *inode, struct file *file)
 {
-  printk(KERN_INFO "Close ! %s", inode->i_private);
+  // printk(KERN_INFO "Close ! %s", inode->i_private);
   file->private_data = inode->i_private;
 
   struct s_proto proto =
@@ -59,6 +65,12 @@ int                           ftrigger_f_release(struct inode *inode, struct fil
   };
   strcpy(proto.args, inode->i_private);
   write_socket(socket, &proto);
+  read_socket(socket_data, &proto);
+  if (proto.code == ERROR)
+  {
+    printk(KERN_ERR "Error close : %s", proto.args);
+    return -1;
+  }
 
   return 0;
 }
@@ -76,7 +88,13 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
   // printk(KERN_INFO "Read ! len = %d, off = %d", len, *off);
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
-  printk(KERN_INFO "Read ! len = %d, off = %d, args = %s", proto.len, proto.off, proto.args);
+  if (proto.code == ERROR)
+  {
+    printk(KERN_ERR "Error read : %s", proto.args);
+    return -1;
+  }
+
+  // printk(KERN_INFO "Read ! len = %d, off = %d, args = %s", proto.len, proto.off, proto.args);
   copy_to_user(buff, proto.args, proto.len);
   *off += proto.len;
   return proto.len;
@@ -84,8 +102,35 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
 
 ssize_t                       ftrigger_f_write(struct file *file, const char __user *buff, size_t len, loff_t *off)
 {
-  printk(KERN_INFO "Write !");
-  return 0;
+  ssize_t                     size;
+
+  struct s_proto proto =
+  {
+    .code = WRITE,
+    .off = *off,
+  };
+
+  if (len < 255)
+    size = len;
+  else
+    size = 255;
+
+  proto.len = size;
+
+  copy_from_user(proto.args, buff, size);
+  strcpy(proto.path, file->private_data);
+
+  write_socket(socket, &proto);
+  read_socket(socket_data, &proto);
+  if (proto.code == ERROR)
+  {
+    printk(KERN_ERR "Error write : %s", proto.args);
+    return -1;
+  }
+
+  // printk(KERN_INFO "Write ! len = %d, off = %d, args = %s", proto.len, proto.off, proto.args);
+  *off += proto.len;
+  return proto.len;
 }
 
 struct file_operations        i_fop =

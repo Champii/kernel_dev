@@ -11,6 +11,7 @@ class Protocole
               .word32Sle('len')
               .word32Sle('off')
               .chars('args', 255)
+              .chars('path', 255)
     @struct.allocate()
     @fields = @struct.fields
 

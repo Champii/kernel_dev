@@ -30,6 +30,7 @@ class Ftrigger
       1: @Mount
       4: @Open
       5: @Read
+      7: @Write
       8: @Close
 
     @proto = new Protocole()
@@ -61,7 +62,8 @@ class Ftrigger
 
   ParseRequest: (request, client) ->
     @proto.struct._setBuff request
-    @actionArray[@proto.fields.code].apply @, [@proto.fields, client]
+    if @actionArray[@proto.fields.code]?
+      @actionArray[@proto.fields.code].apply @, [@proto.fields, client]
 
   Mount: (request, client) ->
     @files.WalkFiles rootDir, (err, file, type) =>
@@ -70,21 +72,42 @@ class Ftrigger
       @SendFileName client, file, type
 
   Open: (request, client) ->
-    @files.Open rootDir + request.args, (err, fd) =>
-      if err
-        console.error err
+    @files.Open rootDir + request.args, 0, (err, fd) =>
+      return @SendError client, err if err
+      @proto.fields.code = 4
+      buffer = new Buffer(@proto.struct.buffer())
+      client.sockData.write buffer
 
   Close: (request, client) ->
     @files.Close rootDir + request.args, (err) =>
-      console.error err if err
+      return @SendError client, err if err
+      @proto.fields.code = 8
+      buffer = new Buffer(@proto.struct.buffer())
+      client.sockData.write buffer
 
   Read: (request, client) ->
     @files.Read rootDir + request.args, request.len, request.off, (err, readLen, chunk) =>
+      return @SendError client, err if err
       @proto.fields.code = 6
       @proto.fields.len = readLen
       @proto.fields.args = chunk
       buffer = new Buffer(@proto.struct.buffer())
       client.sockData.write buffer
+
+  Write: (request, client) ->
+    @files.Write rootDir + request.path, request.args, request.len, request.off, (err, writeLen) =>
+      return @SendError client, err if err
+      @proto.fields.code = 7
+      @proto.fields.len = writeLen
+      buffer = new Buffer(@proto.struct.buffer())
+      client.sockData.write buffer
+
+  SendError: (client, err) ->
+    console.error err
+    @proto.fields.code = 9
+    @proto.fields.args = err
+    buffer = new Buffer(@proto.struct.buffer())
+    client.sockCtrl.write buffer
 
   Run: ->
     @server.listen '12345', () ->

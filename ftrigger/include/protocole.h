@@ -9,6 +9,7 @@
 # define                      READ      6
 # define                      WRITE     7
 # define                      CLOSE     8
+# define                      ERROR     9
 
 struct                        s_proto
 {
@@ -16,6 +17,7 @@ struct                        s_proto
   int                         len;
   int                         off;
   char                        args[255];
+  char                        path[255]; // usefull for write
 };
 
 #endif                        /* __PROTOCOLE_H__ */
