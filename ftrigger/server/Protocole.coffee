@@ -8,6 +8,8 @@ class Protocole
   constructor: ->
     @struct = Struct()
               .word32Sle('code')
+              .word32Sle('len')
+              .word32Sle('off')
               .chars('args', 255)
     @struct.allocate()
     @fields = @struct.fields

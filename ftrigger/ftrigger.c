@@ -19,6 +19,7 @@
 #define FT_MAGIC 0x42424242
 
 struct socket                 *socket = NULL;
+struct socket                 *socket_data = NULL;
 struct dentry                 *root = NULL;
 struct super_block            *sb = NULL;
 
@@ -37,6 +38,28 @@ int                           ftrigger_f_open(struct inode *inode, struct file *
   printk(KERN_INFO "Open ! %s", inode->i_private);
   file->private_data = inode->i_private;
 
+  struct s_proto proto =
+  {
+    .code = OPEN,
+  };
+  strcpy(proto.args, inode->i_private);
+  write_socket(socket, &proto);
+
+  return 0;
+}
+
+int                           ftrigger_f_release(struct inode *inode, struct file *file)
+{
+  printk(KERN_INFO "Close ! %s", inode->i_private);
+  file->private_data = inode->i_private;
+
+  struct s_proto proto =
+  {
+    .code = CLOSE,
+  };
+  strcpy(proto.args, inode->i_private);
+  write_socket(socket, &proto);
+
   return 0;
 }
 
@@ -44,13 +67,19 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
 {
   struct s_proto proto =
   {
-    .code = 4,
+    .code = ASK_READ,
+    .len = 255,
+    .off = *off,
   };
-  strcpy(proto->args, file->private_data);
+  strcpy(proto.args, file->private_data);
 
-  send_socket(socket, &proto);
-  printk(KERN_INFO "Read !");
-  return 0;
+  // printk(KERN_INFO "Read ! len = %d, off = %d", len, *off);
+  write_socket(socket, &proto);
+  read_socket(socket_data, &proto);
+  printk(KERN_INFO "Read ! len = %d, off = %d, args = %s", proto.len, proto.off, proto.args);
+  copy_to_user(buff, proto.args, proto.len);
+  *off += proto.len;
+  return proto.len;
 }
 
 ssize_t                       ftrigger_f_write(struct file *file, const char __user *buff, size_t len, loff_t *off)
@@ -62,6 +91,7 @@ ssize_t                       ftrigger_f_write(struct file *file, const char __u
 struct file_operations        i_fop =
 {
   .open = ftrigger_f_open,
+  .release = ftrigger_f_release,
   .read = ftrigger_f_read,
   .write = ftrigger_f_write,
 };
@@ -207,11 +237,10 @@ static int                    ftrigger_super(struct super_block *superblock, voi
   struct inode *inode = new_inode(superblock);
   struct dentry *rootPath;
   int r = 0;
-  char  *mount_point_buff = kmalloc(255, GFP_KERNEL);
 
   struct s_proto              test =
   {
-    .code = 1,
+    .code = MOUNT,
     .args = "",
   };
 
@@ -233,8 +262,6 @@ static int                    ftrigger_super(struct super_block *superblock, voi
   if (!rootPath) {
       return -ENOMEM;
   }
-  mount_point = dentry_path_raw(rootPath, mount_point_buff, 255);
-  printk(KERN_INFO "Mount point = %s", mount_point);
   superblock -> s_root = rootPath;
 
   root = rootPath; //Global root
@@ -267,14 +294,14 @@ struct file_system_type       fstype =
   .next = NULL,
 };
 
-static int                    socket_init(void)
+static int                    socket_init(struct socket **sock)
 {
   int                         r = -1;
   struct sockaddr_in          servaddr;
 
-  if ((r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &socket)) < 0)
+  if ((r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, sock)) < 0)
   {
-    printk(KERN_INFO "Error socket : sock_create : ret = %d\n", r);
+    printk(KERN_INFO "Error sock : sock_create : ret = %d\n", r);
 
     return r;
   }
@@ -284,12 +311,12 @@ static int                    socket_init(void)
   servaddr.sin_port = htons(12345);
   servaddr.sin_addr.s_addr = inet_addr("192.168.56.1");
 
-  printk(KERN_INFO "Socket = %x, servaddr = %x\n", socket, &servaddr);
+  // printk(KERN_INFO "sock = %x, servaddr = %x\n", sock, &servaddr);
 
-  if ((r = socket->ops->connect(socket, (struct sockaddr *) &servaddr, sizeof(servaddr), O_RDWR)) < 0)
+  if ((r = (*sock)->ops->connect(*sock, (struct sockaddr *) &servaddr, sizeof(servaddr), O_RDWR)) < 0)
   {
-    printk(KERN_INFO "Error socket : connect : ret = %d\n", r);
-    socket->ops->release(socket);
+    printk(KERN_INFO "Error sock : connect : ret = %d\n", r);
+    (*sock)->ops->release(*sock);
 
     return r;
   }
@@ -311,6 +338,7 @@ int                           create_path(struct s_proto *proto)
   tab = str_to_wordtab(proto->args, '/');
   while (i < count_word(proto->args, '/'))
   {
+    // printk(KERN_INFO "sentence: %s, nb : %d, Word: %s", proto->args, count_word(proto->args, '/'), tab[i]);
     name.name = tab[i];
     name.len = strlen(tab[i]);
     name.hash = full_name_hash(name.name, name.len);
@@ -333,7 +361,10 @@ int                           create_path(struct s_proto *proto)
           return -1;
         }
         else
-          created->d_inode->i_private = proto->args;
+        {
+          created->d_inode->i_private = kmalloc(255, GFP_KERNEL);
+          strcpy(created->d_inode->i_private, proto->args);
+        }
       }
       else if (proto->code == FOLDER)
       {
@@ -405,7 +436,9 @@ static int __init             ftrigger_init(void)
     return r;
   }
 
-  if ((r = socket_init()) < 0)
+  if ((r = socket_init(&socket)) < 0)
+    return r;
+  if ((r = socket_init(&socket_data)) < 0)
     return r;
 
   thread = kthread_run(&async_read, NULL, "async_read");
@@ -428,6 +461,7 @@ static void __exit            ftrigger_exit(void)
     printk(KERN_ERR "Error unregistering filesystem : ret = %d", r);
 
   socket->ops->release(socket);
+  socket_data->ops->release(socket_data);
 }
 
 module_init(ftrigger_init);
