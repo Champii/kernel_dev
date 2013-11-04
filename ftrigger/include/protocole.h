@@ -16,6 +16,7 @@ struct                        s_proto
   int                         code;
   int                         len;
   int                         off;
+  int                         size;
   char                        args[255];
   char                        path[255]; // usefull for write
 };

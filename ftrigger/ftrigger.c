@@ -23,16 +23,6 @@ struct socket                 *socket_data = NULL;
 struct dentry                 *root = NULL;
 struct super_block            *sb = NULL;
 
-// int                           send_open_request(struct file *file)
-// {
-//   struct s_proto              proto =
-//   {
-//     .code = 4,
-//     .args = file.name,
-//   };
-//   return 0;
-// }
-
 int                           ftrigger_f_open(struct inode *inode, struct file *file)
 {
   // printk(KERN_INFO "Open ! %s", inode->i_private);
@@ -56,14 +46,13 @@ int                           ftrigger_f_open(struct inode *inode, struct file *
 
 int                           ftrigger_f_release(struct inode *inode, struct file *file)
 {
-  // printk(KERN_INFO "Close ! %s", inode->i_private);
-  file->private_data = inode->i_private;
-
   struct s_proto proto =
   {
     .code = CLOSE,
   };
+
   strcpy(proto.args, inode->i_private);
+  file->private_data = inode->i_private;
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
   if (proto.code == ERROR)
@@ -83,6 +72,7 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
     .len = 255,
     .off = *off,
   };
+
   strcpy(proto.args, file->private_data);
 
   // printk(KERN_INFO "Read ! len = %d, off = %d", len, *off);
@@ -219,7 +209,7 @@ struct dentry                 *d_make_root(struct inode *root_inode)
   return res;
 }
 
-static struct dentry          *ftrigger_create_file (struct super_block *sb, struct dentry *dir, const char *name)
+static struct dentry          *ftrigger_create_file (struct super_block *sb, struct dentry *dir, const char *name, int size)
 {
   struct dentry *dentry;
   struct inode *inode;
@@ -236,6 +226,7 @@ static struct dentry          *ftrigger_create_file (struct super_block *sb, str
   if (! inode)
     goto out_dput;
   inode->i_fop = &i_fop;
+  inode->i_size = size;
 
   d_add(dentry, inode);
   return dentry;
@@ -400,7 +391,7 @@ int                           create_path(struct s_proto *proto)
     {
       if (proto->code == FILE)
       {
-        if ((created = ftrigger_create_file(sb, parentDir, tab[i])) == NULL)
+        if ((created = ftrigger_create_file(sb, parentDir, tab[i], proto->size)) == NULL)
         {
           printk(KERN_ERR "Cannot create file %s", tab[i]);
           return -1;

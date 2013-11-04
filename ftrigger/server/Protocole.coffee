@@ -10,6 +10,7 @@ class Protocole
               .word32Sle('code')
               .word32Sle('len')
               .word32Sle('off')
+              .word32Sle('size')
               .chars('args', 255)
               .chars('path', 255)
     @struct.allocate()

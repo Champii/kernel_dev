@@ -53,9 +53,10 @@ class Ftrigger
       stream.on 'error', (err) ->
         console.error 'ERROR : ', err
 
-  SendFileName: (client, file, type) ->
+  SendFileName: (client, file, size, type) ->
     realFile = file[rootDir.length ... file.length]
     @proto.fields.code = type
+    @proto.fields.size = size
     @proto.fields.args = realFile
     buffer = new Buffer(@proto.struct.buffer())
     wrote = client.sockCtrl.write buffer
@@ -66,10 +67,10 @@ class Ftrigger
       @actionArray[@proto.fields.code].apply @, [@proto.fields, client]
 
   Mount: (request, client) ->
-    @files.WalkFiles rootDir, (err, file, type) =>
+    @files.WalkFiles rootDir, (err, file, size, type) =>
       return console.error if err
 
-      @SendFileName client, file, type
+      @SendFileName client, file, size, type
 
   Open: (request, client) ->
     @files.Open rootDir + request.args, 0, (err, fd) =>

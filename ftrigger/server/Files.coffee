@@ -21,10 +21,10 @@ class Files
             return err if err
 
             if sfile.isDirectory()
-              done null, curDir, 3
+              done null, curDir, 4096, 3
               @WalkFiles curDir, done
             else
-              done null, curDir, 2
+              done null, curDir, sfile.size, 2
         tmp file
 
   Open: (path, mode, done) ->
