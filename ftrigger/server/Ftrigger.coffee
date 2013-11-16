@@ -12,8 +12,10 @@ class Client
 
   sockCtrl: null
   sockData: null
+  toDel: null
 
   constructor: ->
+    @toDel = false
 
 
 
@@ -46,10 +48,17 @@ class Ftrigger
         console.log 'Connected ', stream.remoteAddress, ' -> Data socket'
 
       stream.setNoDelay(true);
+
       stream.on 'data', (data) =>
         @ParseRequest data, client
+
       stream.on 'end', ->
+        if !clients[stream._peername.address].toDel
+          clients[stream._peername.address].toDel = true
+        else
+          delete clients[stream._peername.address]
         console.log 'Disconnected'
+
       stream.on 'error', (err) ->
         console.error 'ERROR : ', err
 

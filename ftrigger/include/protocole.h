@@ -1,15 +1,15 @@
 #ifndef                       __PROTOCOLE_H__
 # define                      __PROTOCOLE_H__
 
-# define                      MOUNT     1
-# define                      FILE      2
-# define                      FOLDER    3
-# define                      OPEN      4
-# define                      ASK_READ  5
-# define                      READ      6
-# define                      WRITE     7
-# define                      CLOSE     8
-# define                      ERROR     9
+# define                      P_MOUNT     1
+# define                      P_FILE      2
+# define                      P_FOLDER    3
+# define                      P_OPEN      4
+# define                      P_ASK_READ  5
+# define                      P_READ      6
+# define                      P_WRITE     7
+# define                      P_CLOSE     8
+# define                      P_ERROR     9
 
 struct                        s_proto
 {

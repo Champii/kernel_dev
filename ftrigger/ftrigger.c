@@ -25,17 +25,18 @@ struct super_block            *sb = NULL;
 
 int                           ftrigger_f_open(struct inode *inode, struct file *file)
 {
-  // printk(KERN_INFO "Open ! %s", inode->i_private);
-  file->private_data = inode->i_private;
-
   struct s_proto proto =
   {
-    .code = OPEN,
+    .code = P_OPEN,
   };
+
+  file->private_data = inode->i_private;
+
   strcpy(proto.args, inode->i_private);
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
-  if (proto.code == ERROR)
+
+  if (proto.code == P_ERROR)
   {
     printk(KERN_ERR "Error open : %s", proto.args);
     return -1;
@@ -48,14 +49,14 @@ int                           ftrigger_f_release(struct inode *inode, struct fil
 {
   struct s_proto proto =
   {
-    .code = CLOSE,
+    .code = P_CLOSE,
   };
 
   strcpy(proto.args, inode->i_private);
   file->private_data = inode->i_private;
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
-  if (proto.code == ERROR)
+  if (proto.code == P_ERROR)
   {
     printk(KERN_ERR "Error close : %s", proto.args);
     return -1;
@@ -66,9 +67,10 @@ int                           ftrigger_f_release(struct inode *inode, struct fil
 
 ssize_t                       ftrigger_f_read(struct file *file, char __user *buff, size_t len, loff_t *off)
 {
+  unsigned long               r = 0;
   struct s_proto proto =
   {
-    .code = ASK_READ,
+    .code = P_ASK_READ,
     .len = 255,
     .off = *off,
   };
@@ -78,14 +80,16 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
   // printk(KERN_INFO "Read ! len = %d, off = %d", len, *off);
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
-  if (proto.code == ERROR)
+  if (proto.code == P_ERROR)
   {
     printk(KERN_ERR "Error read : %s", proto.args);
     return -1;
   }
 
   // printk(KERN_INFO "Read ! len = %d, off = %d, args = %s", proto.len, proto.off, proto.args);
-  copy_to_user(buff, proto.args, proto.len);
+  if ((r = copy_to_user(buff, proto.args, proto.len)) != 0)
+    printk(KERN_INFO "Non copied bites : %lu", r);
+
   *off += proto.len;
   return proto.len;
 }
@@ -93,10 +97,10 @@ ssize_t                       ftrigger_f_read(struct file *file, char __user *bu
 ssize_t                       ftrigger_f_write(struct file *file, const char __user *buff, size_t len, loff_t *off)
 {
   ssize_t                     size;
-
+  unsigned long               r = 0;
   struct s_proto proto =
   {
-    .code = WRITE,
+    .code = P_WRITE,
     .off = *off,
   };
 
@@ -107,12 +111,14 @@ ssize_t                       ftrigger_f_write(struct file *file, const char __u
 
   proto.len = size;
 
-  copy_from_user(proto.args, buff, size);
+  if ((r = copy_from_user(proto.args, buff, size)) != 0)
+    printk(KERN_INFO "Non copied bites : %lu", r);
+
   strcpy(proto.path, file->private_data);
 
   write_socket(socket, &proto);
   read_socket(socket_data, &proto);
-  if (proto.code == ERROR)
+  if (proto.code == P_ERROR)
   {
     printk(KERN_ERR "Error write : %s", proto.args);
     return -1;
@@ -276,7 +282,7 @@ static int                    ftrigger_super(struct super_block *superblock, voi
 
   struct s_proto              test =
   {
-    .code = MOUNT,
+    .code = P_MOUNT,
     .args = "",
   };
 
@@ -364,7 +370,6 @@ int                           create_path(struct s_proto *proto)
 {
   char                        **tab;
   struct qstr                 name;
-  int                         r = 0;
   struct dentry               *currentDir = root;
   struct dentry               *parentDir = root;
   struct dentry               *created = NULL;
@@ -389,7 +394,7 @@ int                           create_path(struct s_proto *proto)
     currentDir = d_lookup(parentDir, &name);
     if (!currentDir)
     {
-      if (proto->code == FILE)
+      if (proto->code == P_FILE)
       {
         if ((created = ftrigger_create_file(sb, parentDir, tab[i], proto->size)) == NULL)
         {
@@ -402,16 +407,16 @@ int                           create_path(struct s_proto *proto)
           strcpy(created->d_inode->i_private, proto->args);
         }
       }
-      else if (proto->code == FOLDER)
+      else if (proto->code == P_FOLDER)
       {
-        if ((r = ftrigger_create_dir(sb, parentDir, tab[i])) == NULL)
+        if ((created = ftrigger_create_dir(sb, parentDir, tab[i])) == NULL)
         {
           printk(KERN_ERR "Cannot create folder %s", tab[i]);
           return -1;
         }
       }
     }
-    else if (currentDir->d_name.name == &name.name)
+    else if (currentDir->d_name.name == name.name)
     {
       printk(KERN_INFO "ERROR : Existing path ! ");
       return -1;
